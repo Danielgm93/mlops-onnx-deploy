@@ -46,11 +46,15 @@ def startup_event():
 
 
 @app.get("/health")
+@app.get("/dev/health")
+@app.get("/prod/health")
 def health_check():
     return {"status": "ok"}
 
 
 @app.post("/predict", response_model=PredictResponse)
+@app.post("/dev/predict", response_model=PredictResponse)
+@app.post("/prod/predict", response_model=PredictResponse)
 def predict_endpoint(req: PredictRequest):
     """
     Endpoint principal de inferencia NER sobre texto.
