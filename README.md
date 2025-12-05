@@ -124,6 +124,12 @@ Igual que dev, pero actualiza el servicio ECS `prod`, que expone `/prod/predict`
 | Logs dev    | `mlops-daniel-logs-bucket`  | `predictions_dev.txt`  |
 | Logs prod   | `mlops-daniel-logs-bucket`  | `predictions_prod.txt` |
 
+**Bucket** `mlops-daniel-model-bucket`
+![Bucket model](./images/bucketmodel.png)
+
+**Bucket** `mlops-daniel-logs-bucket`
+![Bucket logs](./images/bucketlogs.png) 
+
 ### Amazon ECR
 
 Almacena las imágenes Docker generadas por CI/CD.
