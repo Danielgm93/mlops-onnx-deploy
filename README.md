@@ -30,7 +30,7 @@ Cada push a `dev` o `prod` dispara automáticamente el pipeline.
 
 ---
 
-# 2. **Arquitectura (diagrama ASCII)**
+# 2. **Arquitectura**
 
 ```
                 ┌──────────────┐
@@ -128,16 +128,22 @@ Igual que dev, pero actualiza el servicio ECS `prod`, que expone `/prod/predict`
 
 Almacena las imágenes Docker generadas por CI/CD.
 
+![ECR DE AWS](./images/ecraws.png)
+
 ### Amazon ECS (Fargate)
 
 * Servicio **dev** y servicio **prod**
 * Cada uno con su propia task definition
 * Cada task obtiene modelo desde S3 en tiempo de arranque
 
+![ECS DE AWS](./images/ecsaws.png)
+
 ### Application Load Balancer
 
 * `/dev/...` → ECS dev
 * `/prod/...` → ECS prod
+
+![ALB DE AWS](./images/albaws.png)
 
 ---
 
@@ -207,4 +213,66 @@ MIN_ACCEPTABLE_ACCURACY
 ```
 
 Todas se pueden cambiar sin tocar el código.
+
+# 10. **Endpoints**
+
+El modelo es accesible por la web mediante una api, se puede obtener el estado con las siguientes direcciones:
+
+```
+http://mlops-daniel-alb-1642485410.us-east-1.elb.amazonaws.com/health
+```
+Rama dev:
+
+```
+http://mlops-daniel-alb-1642485410.us-east-1.elb.amazonaws.com/dev/health
+```
+Rama prod:
+
+```
+http://mlops-daniel-alb-1642485410.us-east-1.elb.amazonaws.com/prod/health
+```
+
+Ejemplo del punto `health` con postman:
+![Ejemplo de punto health con postman](./images/pointhealth.png)
+
+Para acceder al modelo se tienen los siguientes puntos:
+
+Url:
+
+```
+http://mlops-daniel-alb-1642485410.us-east-1.elb.amazonaws.com/predict
+```
+
+json:
+
+```json
+{"text": "My name is John Doe and I live in Paris."}
+```
+
+Url rama dev:
+
+```
+http://mlops-daniel-alb-1642485410.us-east-1.elb.amazonaws.com/dev/predict
+```
+
+json rama dev:
+
+```json
+{"text": "My name is John Doe and I live in Paris."}
+```
+
+Url rama prod:
+
+```
+http://mlops-daniel-alb-1642485410.us-east-1.elb.amazonaws.com/prod/predict
+```
+
+json rama prod:
+
+```json
+{"text": "My name is John Doe and I live in Paris."}
+```
+
+Ejemplo de punto `predict` con postman:
+![Ejemplo de punto predict con postman](./images/pointpredict.png)
 
