@@ -1,119 +1,95 @@
-# MLOps ONNX Deploy – CI/CD con GitHub Actions, AWS S3, ECR y ECS
+#  **Proyecto MLOps – Sistema de Despliegue Automático para Modelo ONNX**
 
-## 1. Descripción general
+## **AUTOR:** Daniel Garcia Mendez
 
-Este proyecto implementa un **sistema de despliegue automático** para un modelo de Machine Learning
-en formato **ONNX**, usando:
+Este proyecto implementa un sistema completo de **despliegue automático** para un modelo de Machine Learning **preexistente en formato ONNX**, cumpliendo todos los requisitos definidos en el documento del curso “Sistemas de despliegue automático” .
 
-- **GitHub Actions** para CI/CD.
-- **AWS S3** para:
-  - Modelo ONNX (`model.onnx`).
-  - Datos de prueba (`test_data.json`).
-  - Logs de predicciones (`predictions_dev.txt`, `predictions_prod.txt`).
-- **AWS ECR** para almacenar imágenes Docker.
-- **AWS ECS (Fargate)** + **Application Load Balancer (ALB)** para exponer dos endpoints:
-  - Endpoint `dev` (rama `dev`).
-  - Endpoint `prod` (rama `prod`).
+La solución permite:
 
-La infraestructura es **agnóstica al modelo**: cambiar de modelo implica solo cambiar la
-**ruta del modelo en S3 y las variables de entorno**, sin modificar código de la app,
-ni pipeline, ni recursos base en AWS.
+* Deploy automático a **dos entornos independientes**: `dev` y `prod`.
+* Estructura CI/CD que prueba, construye, publica e implementa un contenedor.
+* Registro de predicciones en archivos TXT en S3 para auditoría.
 
 ---
 
-## 2. Arquitectura (alto nivel)
+# 1. **Descripción general del sistema**
 
-Pseudo-diagrama:
+El repositorio contiene:
 
-```text
-           +-------------------------+
-           | GitHub (repo)          |
-           | branches: dev, prod    |
-           +-----------+------------+
-                       |
-                       | push
-                       v
-           +-------------------------+
-           | GitHub Actions          |
-           |  - Job: test            |
-           |  - Job: build_and_deploy|
-           +-----------+-------------+
-                       |
-                       | docker push
-                       v
-   +-----------------------------+       +-------------------------+
-   | AWS ECR                     |       | AWS S3                  |
-   | mlops-onnx-api (repo)       |       | - model-bucket          |
-   +-------------+---------------+       |   - models/current/...  |
-                 |                       |   - test-data/...       |
-                 |                       | - logs-bucket           |
-                 |                       |   - predictions_dev.txt |
-                 |                       |   - predictions_prod.txt|
-                 v                       +-------------------------+
-   +-----------------------------+
-   | AWS ECS (Fargate)          |
-   | Cluster: mlops-onnx-cluster|
-   |                             |
-   | Service dev  Service prod   |
-   |  ENV=dev      ENV=prod      |
-   +-----+-------------+---------+
-         |             |
-         v             v
-     Target Group  Target Group
-         |             |
-         +------ ALB ---+
-                 |
-                 v
-           Usuarios / clientes
+* Una aplicación FastAPI que carga un modelo ONNX desde S3
+* Un pipeline CI/CD unificado (GitHub Actions) que ejecuta:
+
+  * **test** → descarga test_data y modelo desde S3 y ejecuta pruebas unitarias.
+  * **build/promote** → construye Docker image y despliega en AWS ECS.
+* Dos endpoints independientes:
+
+  * `/dev/...` (rama dev → servicio ECS dev)
+  * `/prod/...` (rama prod → servicio ECS prod)
+
+Cada push a `dev` o `prod` dispara automáticamente el pipeline.
+
+---
+
+# 2. **Arquitectura (diagrama ASCII)**
+
+```
+                ┌──────────────┐
+                │   GitHub     │
+                │  Repository  │
+                └──────┬───────┘
+                       │ push (dev/prod)
+                       ▼
+            ┌──────────────────────┐
+            │ GitHub Actions CI/CD │
+            └──────┬───────┬───────┘
+                   │       │
+      test stage   │       │   build/promote stage
+   (download S3)   │       │   (docker build + push)
+                   ▼       ▼
+           ┌────────────────────┐
+           │   Amazon ECR       │
+           └────────┬───────────┘
+                    │  new image
+                    ▼
+     ┌──────────────────────────────────┐
+     │             Amazon ECS           │
+     │   dev-service      prod-service  │
+     │   (task dev)       (task prod)   │
+     └──────────┬──────────────┬────────┘
+                │              │
+         ┌──────▼───────┐ ┌────▼────────┐
+         │ /dev/predict │ │/prod/predict│
+         └──────────────┘ └─────────────┘
+                │                │
+                ▼                ▼
+      S3 logs bucket:   S3 logs bucket:
+  predictions_dev.txt   predictions_prod.txt
 ```
 
 ---
 
-## 3. Modelo ONNX usado (ejemplo)
+# 3. **Estructura del repositorio**
 
-El proyecto asume un modelo ONNX de clasificación tipo Iris:
-
-- **Entrada:** vector `[f1, f2, f3, f4]` (floats).
-
-- **Salida:** logits o probabilidades para 3 clases (0, 1, 2).
-
-En la práctica, puedes usar cualquier modelo ONNX compatible con onnxruntime que:
-
-- Reciba un tensor 2D de floats `shape: (batch_size, n_features)`.
-
-- Devuelva logits/probabilidades o una salida numérica interpretable como clase.
-
-La app y los tests solo asumen que:
-
-- El modelo se puede cargar con `onnxruntime.InferenceSession`.
-
-- Se puede inferir pasando un dict `{input_name: np.array([...])}`.
-
----
-
-## 4. Estructura del repositorio
-```text
+```
 app/
-  main.py           # FastAPI + endpoints + integración logging
-  model_loader.py   # Descarga y carga del modelo desde S3 (agnóstico)
-  predictor.py      # Lógica de inferencia (single y batch)
-  logging_utils.py  # Escritura de logs de predicciones en S3
+  main.py
+  model_loader.py
+  predictor.py
+  logging_utils.py
   requirements.txt
 
 tests/
-  test_inference_response.py  # Verifica que el modelo responde
-  test_metric_threshold.py    # Verifica que accuracy >= umbral
+  test_inference_response.py
+  test_metric_threshold.py
 
 .github/workflows/
-  ci_cd.yml         # Pipeline unificado para dev y prod
+  ci_cd.yml
+
+infra/ (opcional)
+  terraform/ scripts / comandos de ejemplo
 
 config/
-  env.example       # Variables de entorno de ejemplo
-
-infra/
-  create_s3_buckets.sh
-  create_ecr_repo.sh
-  create_ecs_cluster_and_services.sh
+  env.example
 
 Dockerfile
 README.md
@@ -121,81 +97,114 @@ README.md
 
 ---
 
-## 5. Flujo de CI/CD
-### 5.1 Rama `dev`
+# 4. **Flujo CI/CD: dev vs prod**
 
-1. Haces `git push` a la rama `dev`.
+### Push a `dev`
 
-2. Se dispara el workflow `ci_cd.yml`.
+1. Se descarga test_data + modelo desde S3.
+2. Se corren pruebas unitarias.
+3. Se construye image Docker → push a ECR.
+4. Se actualiza el servicio ECS `dev`.
+5. `/dev/predict` queda listo para usar.
 
-3. Job `test`:
+### Push a `prod`
 
-    - Configura credenciales AWS.
-
-    - Descarga el modelo desde:
-
-        - `s3://mlops-model-bucket/models/current/model.onnx`
-
-    - Descarga los datos de prueba desde:
-
-        - `s3://mlops-model-bucket/test-data/test_data.json`
-
-    - Ejecuta:
-
-        - `tests/test_inference_response.py`: verifica que el modelo responda.
-
-        - `tests/test_metric_threshold.py`: calcula accuracy con los datos de prueba y verifica que sea ≥ MIN_ACCEPTABLE_ACCURACY (p.e. 0.7).
-
-4. Si `test` pasa, job `build_and_deploy`:
-
-    - Construye imagen Docker de la app FastAPI.
-
-    - Etiqueta la imagen con `<branch>-<short_sha>` y hace push a ECR.
-
-    - Actualiza el servicio ECS `mlops-onnx-api-dev` con la nueva imagen.
-
-    - El ALB apunta a este servicio para el endpoint `dev`.
-
-## 5.2 Rama `prod`
-
-Análogo, pero:
-
-- El servicio actualizado es `mlops-onnx-api-prod`.
-
-- El archivo de logs en S3 será `predictions_prod.txt`.
-
-- Normalmente se hará merge de `dev` → `prod` cuando hayas validado cambios.
+Igual que dev, pero actualiza el servicio ECS `prod`, que expone `/prod/predict`.
 
 ---
 
-## 6. Relación entre buckets S3 y sistema
+# 5. **Infraestructura en AWS**
 
-Ejemplo de esquema:
+### Buckets S3 (ejemplo usado)
 
-```text
-s3://mlops-model-bucket/
-  ├── models/
-  │   └── current/
-  │       └── model.onnx
-  └── test-data/
-      └── test_data.json
+| Uso         | Bucket                      | Key                    |
+| ----------- | --------------------------- | ---------------------- |
+| Modelo ONNX | `mlops-daniel-model-bucket` | `model.onnx`           |
+| Test data   | `mlops-daniel-model-bucket` | `test_data.json`       |
+| Logs dev    | `mlops-daniel-logs-bucket`  | `predictions_dev.txt`  |
+| Logs prod   | `mlops-daniel-logs-bucket`  | `predictions_prod.txt` |
 
-s3://mlops-logs-bucket/
-  ├── predictions_dev.txt
-  └── predictions_prod.txt
+### Amazon ECR
+
+Almacena las imágenes Docker generadas por CI/CD.
+
+### Amazon ECS (Fargate)
+
+* Servicio **dev** y servicio **prod**
+* Cada uno con su propia task definition
+* Cada task obtiene modelo desde S3 en tiempo de arranque
+
+### Application Load Balancer
+
+* `/dev/...` → ECS dev
+* `/prod/...` → ECS prod
+
+---
+
+# 6. **Aplicación FastAPI**
+
+Funciones principales:
+
+* Descarga el modelo ONNX desde S3 al iniciar.
+* Usa ONNX Runtime para inferencia.
+* Endpoint principal:
+
+  ```
+  POST /predict
+  {
+     "text": "Daniel vive en Cali"
+  }
+  ```
+* Retorna entidades NER.
+* Guarda cada predicción como una línea JSON en S3:
+
+  * `predictions_dev.txt`
+  * `predictions_prod.txt`
+
+---
+
+# 7. **Pruebas unitarias**
+
+### 1. Test de respuesta del modelo
+
+Confirma que el modelo ONNX responde a un input válido.
+
+### 2. Test de métrica mínima
+
+Calcula F1 usando `test_data.json` y valida que cumpla un umbral.
+
+Ambos tests se ejecutan automáticamente en CI/CD y deben pasar para continuar al despliegue.
+
+---
+
+# 8. **Ejecución local**
+
+```
+docker build -t onnx-app .
+docker run -p 8000:8000 \
+   -e MODEL_S3_BUCKET=mlops-daniel-model-bucket \
+   -e MODEL_S3_KEY=model.onnx \
+   -e AWS_REGION=us-east-1 \
+   -e ENVIRONMENT=dev \
+   -e PREDICTIONS_S3_BUCKET=mlops-daniel-logs-bucket \
+   -e PREDICTIONS_S3_KEY=predictions_dev.txt \
+   onnx-app
 ```
 
-- La app nunca contiene el `.onnx` ni el `test_data.json` en el repo:
+---
 
-    - Siempre se descargan desde S3.
+# 9. **Variables de entorno necesarias**
 
-- Logs de predicción:
+```
+AWS_REGION
+ENVIRONMENT
+MODEL_S3_BUCKET
+MODEL_S3_KEY
+PREDICTIONS_S3_BUCKET
+PREDICTIONS_S3_KEY
+LOCAL_MODEL_PATH
+MIN_ACCEPTABLE_ACCURACY
+```
 
-    - ECS `dev` tiene `PREDICTIONS_S3_KEY=predictions_dev.txt`.
-
-    - ECS `prod` tiene `PREDICTIONS_S3_KEY=predictions_prod.txt`.
-
-- Cambiar de modelo implica subir un nuevo `model.onnx` a otra ruta (por ejemplo
-`models/v2/model.onnx`) y actualizar `MODEL_S3_KEY` en las variables de entorno
-/ secrets. El resto de la solución sigue igual.
+Todas se pueden cambiar sin tocar el código.
 

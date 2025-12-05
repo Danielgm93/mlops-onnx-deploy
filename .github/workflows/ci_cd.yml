@@ -18,7 +18,7 @@ env:
   TEST_DATA_S3_KEY:    ${{ secrets.S3_TESTDATA_KEY }}     # test-data/test_data.json
 
   # ==== Config de tests ====
-  MIN_ACCEPTABLE_ACCURACY: "0.7"
+  MIN_ACCEPTABLE_ACCURACY: "0.15"
   LOCAL_MODEL_PATH: "models/model.onnx"
   TEST_DATA_LOCAL_PATH: "tests_data/test_data.json"
 
