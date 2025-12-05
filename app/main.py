@@ -5,27 +5,32 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .model_loader import get_onnx_session
-from .predictor import predict_single
 from .logging_utils import append_prediction_log
+from .task_adapter import predict_request
+
+
+class Entity(BaseModel):
+    text: str
+    label: str
+    start: int
+    end: int
 
 
 class PredictRequest(BaseModel):
     """
-    Request para /predict.
-
     Ejemplo de cuerpo:
     {
-      "features": [5.1, 3.5, 1.4, 0.2]
+      "text": "Andres vive en Cali"
     }
     """
-    features: List[float]
+    text: str
 
 
 class PredictResponse(BaseModel):
-    prediction: int
+    entities: List[Entity]
 
 
-app = FastAPI(title="MLOps ONNX Inference API")
+app = FastAPI(title="MLOps ONNX NER API")
 
 
 @app.on_event("startup")
@@ -35,10 +40,8 @@ def startup_event():
     y cargado en memoria.
     """
     try:
-        # Esto inicializa la sesión singleton (descarga el modelo si hace falta).
         get_onnx_session()
     except Exception as e:
-        # Si el modelo no puede cargarse, mejor fallar en startup.
         raise RuntimeError(f"Error al inicializar el modelo ONNX: {e}") from e
 
 
@@ -50,24 +53,27 @@ def health_check():
 @app.post("/predict", response_model=PredictResponse)
 def predict_endpoint(req: PredictRequest):
     """
-    Endpoint principal de inferencia.
+    Endpoint principal de inferencia NER sobre texto.
     """
     try:
         session = get_onnx_session()
-        pred = predict_single(session, req.features)
+        raw_entities = predict_request(session, req.dict())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during inference: {e}")
+
+    # Normalizamos a objetos Entity
+    entities = [Entity(**ent) for ent in raw_entities]
 
     # Registrar la predicción en S3
     environment = os.getenv("ENVIRONMENT", "unknown")
     try:
         append_prediction_log(
             request_payload=req.dict(),
-            prediction=pred,
+            prediction=[e.dict() for e in entities],
             environment=environment,
         )
     except Exception as e:
         # No se cae la predicción por fallo de logging.
         print(f"[WARN] Error al escribir log de predicción en S3: {e}")
 
-    return PredictResponse(prediction=pred)
+    return PredictResponse(entities=entities)

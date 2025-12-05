@@ -3,4 +3,4 @@ uvicorn[standard]
 boto3
 onnxruntime
 numpy
-scikit-learn
+transformers
